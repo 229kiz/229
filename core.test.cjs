@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const A=require('../core.js');
+const map={time:'timestamp',do:'DO_mg_L',air:'airflow_m3_h',temp:'temperature_C'};
+const cfg={bounds:{do:[0,20],air:[0,10000],temp:[0,45]},flatMinutes:60,jumpRate:.4,units:{do:'mg/L',air:'m3/h',temp:'C'}};
+const clean=A.analyze(A.demo(false),map,cfg);
+assert.equal(clean.events.length,0);assert.equal(clean.completeness,100);assert.equal(clean.records.length,288);
+const bad=A.analyze(A.demo(true),map,cfg);
+for(const type of ['重复时间','采样断档','缺测 / 非数值','持续卡值','DO 突变','范围越界'])assert(bad.events.some(e=>e.type===type),type);
+assert(bad.records.some(r=>r.v.do===null));assert(bad.completeness<100);assert(A.assessment(bad).pending>0);
+bad.events.forEach(e=>e.status='process_change');assert(A.assessment(bad).retainedHard>0);bad.events[0].status='data_error';assert.equal(A.assessment(bad).bad,1);
+assert.equal(A.number('0'),0);assert.equal(A.number(''),null);assert.equal(A.number('Infinity'),null);assert.equal(A.number('NaN'),null);
+assert.equal(A.timestamp('2026-02-30T00:00'),null);assert.equal(A.timestamp('2026-06-01T25:00'),null);assert.equal(A.timestamp('2026-06-01'),null);assert.equal(A.timestamp('2026-06-01T00:00:00+02:00'),A.timestamp('2026-05-31T22:00:00Z'));
+const csv=A.parseCSV('\ufeffa,b\r\n"one, two","say ""hi"""\r\n3,4');assert.deepEqual(csv.rows[0],['one, two','say "hi"']);assert.equal(A.parseCSV('a;b\n1;2').rows[0][1],'2');assert.throws(()=>A.parseCSV('a,b\n1'));assert.throws(()=>A.parseCSV('a,a\n1,2'));assert.throws(()=>A.parseCSV('a,b\n"1,2'));
+const round=A.parseCSV(A.toCSV(A.demo(true).headers,A.demo(true).rows));assert.deepEqual(round,A.demo(true));
+const units={headers:['t','d','a','c'],rows:[['2026-06-01T00:00:00Z','2000','10','68']]};const conv=A.analyze(units,{time:'t',do:'d',air:'a',temp:'c'},{...cfg,units:{do:'ug/L',air:'m3/min',temp:'F'}});assert.equal(conv.records[0].v.do,2);assert.equal(conv.records[0].v.air,600);assert.equal(conv.records[0].v.temp,20);assert.equal(units.rows[0][1],'2000');
+assert.throws(()=>A.analyze(A.demo(false),{...map,air:map.do},cfg));assert.throws(()=>A.analyze(A.demo(false),map,{...cfg,flatMinutes:0}));
+const invalid=A.analyze({headers:['t','d'],rows:[['bad','1'],['2026-01-01T00:00Z','0']]},{time:'t',do:'d',air:'',temp:''},cfg);assert(invalid.events.some(e=>e.type==='无效时间'));assert(!invalid.events.some(e=>e.type==='缺测 / 非数值'));
+console.log(`PASS: demo ${bad.events.length} events; clean 0 events; CSV, timestamps, units, configuration and review-state checks passed.`);
